@@ -1,0 +1,607 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Balloon Pop ABC — Tiny Typers</title>
+  <style>
+    :root {
+      --bg1: #b3e5fc; /* sky */
+      --bg2: #e1f5fe; /* sky light */
+      --ink: #0f172a; /* dark text */
+      --ui: #ffffffaa;
+      --accent: #7c3aed;
+      --good: #10b981;
+      --muted: #64748b;
+    }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      color: var(--ink);
+      background: linear-gradient(180deg, var(--bg2), var(--bg1));
+      overflow: hidden;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #app { display: grid; grid-template-rows: auto auto 1fr auto; height: 100%; }
+
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: .75rem 1rem; gap: .75rem;
+    }
+    .brand { display: flex; align-items: center; gap: .6rem; font-weight: 900; letter-spacing: .3px; }
+    .brand .logo { width: 38px; height: 38px; border-radius: 50%;
+      background: radial-gradient(circle at 30% 30%, #fff8, #fff0), conic-gradient(from 0deg, #ff99c8, #fcf6bd, #d0f4de, #a0c4ff, #bdb2ff, #ffc6ff, #ff99c8);
+      box-shadow: 0 2px 8px #0000001a inset, 0 1px 2px #00000014;
+    }
+
+    .toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+    .pill {
+      display: inline-flex; align-items: center; gap: .5rem; border-radius: 999px;
+      padding: .35rem; background: var(--ui); backdrop-filter: saturate(120%) blur(3px);
+      box-shadow: 0 1px 4px #0000001a;
+    }
+    .seg { display: inline-grid; grid-auto-flow: column; background: #fff; border-radius: 999px; }
+    .seg input { display: none; }
+    .seg label {
+      padding: .35rem .75rem; font-weight: 700; cursor: pointer; border-radius: 999px; user-select: none; font-size: .9rem;
+    }
+    .seg input:checked + label { background: #f1f5f9; box-shadow: 0 0 0 2px #e2e8f0 inset; }
+
+    .toggle { --w: 44px; --h: 26px; position: relative; display: inline-flex; align-items: center; gap: .5rem; font-weight: 700; font-size: .9rem; }
+    .toggle input { display:none; }
+    .track { width: var(--w); height: var(--h); background: #e2e8f0; border-radius: 999px; position: relative; box-shadow: inset 0 1px 2px #0001; }
+    .thumb { position: absolute; top: 2px; left: 2px; width: calc(var(--h) - 4px); height: calc(var(--h) - 4px); border-radius: 50%; background: white; box-shadow: 0 1px 2px #0003; transition: transform .2s; }
+    .toggle input:checked ~ .track .thumb { transform: translateX(calc(var(--w) - var(--h))); }
+
+    .hud { display:flex; align-items:center; gap: .75rem; padding: .25rem 1rem .6rem 1rem; font-weight: 800; }
+    .chip { background: var(--ui); border-radius: 999px; padding: .35rem .7rem; box-shadow: 0 1px 4px #0000001a; }
+    .chip .big { font-size: 1.05rem; }
+
+    canvas { width: 100%; height: 100%; display: block; }
+
+    .help {
+      position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+      background: var(--ui); padding: .5rem .75rem; border-radius: 999px; font-weight: 700; box-shadow: 0 2px 10px #0000001a;
+      pointer-events: none; user-select: none;
+    }
+
+    .btn { border: 0; border-radius: 999px; padding: .5rem .9rem; font-weight: 800; cursor: pointer; background: #f8fafc; box-shadow: 0 1px 2px #0001; }
+    .btn:active { transform: translateY(1px); }
+    .btn.reset { background: #fef2f2; }
+
+    @media (max-width: 740px) {
+      header { align-items: stretch; gap: .5rem; }
+      .toolbar { gap: .35rem; }
+      .seg label { padding: .35rem .6rem; }
+      .brand span { display:none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app" role="application" aria-label="Balloon Pop ABC typing game">
+    <header>
+      <div class="brand" aria-hidden="true">
+        <div class="logo"></div>
+        <div>
+          <div style="font-size:1.05rem; line-height:1;">Balloon Pop ABC</div>
+          <div style="font-size:.78rem; color:var(--muted); font-weight:700;">Tiny Typers</div>
+        </div>
+      </div>
+      <div class="toolbar">
+        <div class="pill" title="Choose a play style">
+          <div class="seg" id="modeSeg">
+            <input type="radio" name="mode" id="modePractice" value="practice" checked>
+            <label for="modePractice">Practice</label>
+            <input type="radio" name="mode" id="modeGame" value="game">
+            <label for="modeGame">Game</label>
+          </div>
+        </div>
+        <div class="pill" title="Uppercase or lowercase letters">
+          <div class="seg" id="caseSeg">
+            <input type="radio" name="case" id="caseUpper" value="upper" checked>
+            <label for="caseUpper">A B C</label>
+            <input type="radio" name="case" id="caseLower" value="lower">
+            <label for="caseLower">a b c</label>
+          </div>
+        </div>
+        <label class="toggle pill" title="Background music">
+          <input id="musicToggle" type="checkbox" checked>
+          <span>Music</span>
+          <span class="track"><span class="thumb"></span></span>
+        </label>
+        <label class="toggle pill" title="Sound effects">
+          <input id="sfxToggle" type="checkbox" checked>
+          <span>SFX</span>
+          <span class="track"><span class="thumb"></span></span>
+        </label>
+        <button id="resetBtn" class="btn reset" title="Reset progress">Reset</button>
+      </div>
+    </header>
+
+    <div class="hud" aria-live="polite" aria-atomic="true">
+      <div class="chip">Popped: <span id="popped" class="big">0</span></div>
+      <div class="chip">Time: <span id="time" class="big">0:00</span></div>
+      <div class="chip" id="nowLetterWrap" style="display:none;">Now typing: <span id="nowLetter" class="big">A</span></div>
+    </div>
+
+    <div style="position: relative; overflow:hidden;">
+      <canvas id="game" aria-hidden="true"></canvas>
+      <div class="help">Press the matching letter key to pop a balloon 🎈</div>
+    </div>
+
+  </div>
+
+  <script>
+  (()=>{
+    // === Utility helpers ===
+    const rand = (min, max) => Math.random() * (max - min) + min;
+    const randInt = (min, max) => Math.floor(rand(min, max + 1));
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    const lerp = (a, b, t) => a + (b - a) * t;
+
+    const letters = Array.from({length:26}, (_,i)=>String.fromCharCode(97+i)); // 'a'..'z'
+    const praiseWords = ["Great!", "Well done!", "You got it!", "Awesome!", "Super!", "Yay!", "Nice!"];
+    const balloonPalette = [
+      "#ff6b6b","#ffd166","#06d6a0","#4cc9f0","#b794f4",
+      "#f78fb3","#f6bd60","#84dccf","#a8dadc","#f28482"
+    ];
+
+    // === DOM refs ===
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const poppedEl = document.getElementById('popped');
+    const timeEl = document.getElementById('time');
+    const nowLetterWrap = document.getElementById('nowLetterWrap');
+    const nowLetterEl = document.getElementById('nowLetter');
+
+    const modePractice = document.getElementById('modePractice');
+    const modeGame = document.getElementById('modeGame');
+    const caseUpper = document.getElementById('caseUpper');
+    const caseLower = document.getElementById('caseLower');
+    const musicToggle = document.getElementById('musicToggle');
+    const sfxToggle = document.getElementById('sfxToggle');
+    const resetBtn = document.getElementById('resetBtn');
+
+    // === Canvas sizing ===
+    let W=0, H=0, DPR=1; // device pixel ratio aware
+    function resize(){
+      DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+      const rect = canvas.getBoundingClientRect();
+      W = Math.floor(rect.width * DPR); H = Math.floor((window.innerHeight - 145) * DPR); // leave room for toolbar/hud
+      canvas.width = W; canvas.height = H; // CSS handles visible size
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // === Game state ===
+    let balloons = [];
+    let projectiles = [];
+    let confetti = [];
+    let praises = [];
+    let lastTime = 0;
+    let elapsed = 0;
+    let poppedCount = 0;
+    let spawnTimer = 0; // for game mode
+    let spawnInterval = 2.2; // seconds
+    let maxBalloons = 4;
+    let currentPracticeIndex = 0;
+    let requireFocusNoteShown = false;
+
+    const state = {
+      mode: 'practice', // 'practice' | 'game'
+      letterCase: 'upper', // 'upper' | 'lower'
+      music: true,
+      sfx: true,
+    };
+
+    // Restore toggles from localStorage (if available)
+    try {
+      const saved = JSON.parse(localStorage.getItem('tinyTypersSettings')||'{}');
+      Object.assign(state, saved);
+      modePractice.checked = state.mode === 'practice';
+      modeGame.checked = state.mode === 'game';
+      caseUpper.checked = state.letterCase === 'upper';
+      caseLower.checked = state.letterCase === 'lower';
+      musicToggle.checked = !!state.music; sfxToggle.checked = !!state.sfx;
+    } catch {}
+
+    function saveSettings(){
+      try { localStorage.setItem('tinyTypersSettings', JSON.stringify(state)); } catch {}
+    }
+
+    // === Audio (SFX + simple music) ===
+    const AudioKit = (()=>{
+      let ctx = null, master, sfxGain, musicGain;
+      let musicTimer = null;
+
+      function ensure(){
+        if (ctx) return;
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+        master = ctx.createGain(); master.gain.value = 0.8; master.connect(ctx.destination);
+        sfxGain = ctx.createGain(); sfxGain.gain.value = state.sfx ? 0.9 : 0.0; sfxGain.connect(master);
+        musicGain = ctx.createGain(); musicGain.gain.value = state.music ? 0.12 : 0.0; musicGain.connect(master);
+      }
+
+      function playPop(){
+        if (!ctx) return; if (!state.sfx) return;
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'triangle';
+        o.frequency.setValueAtTime(700, ctx.currentTime);
+        o.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.12);
+        g.gain.setValueAtTime(0.6, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.14);
+        o.connect(g); g.connect(sfxGain);
+        o.start(); o.stop(ctx.currentTime + 0.16);
+      }
+
+      function playFire(){
+        if (!ctx) return; if (!state.sfx) return;
+        const o = ctx.createOscillator(); const g = ctx.createGain();
+        o.type = 'sine'; o.frequency.setValueAtTime(400, ctx.currentTime);
+        g.gain.setValueAtTime(0.4, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+        o.connect(g); g.connect(sfxGain);
+        o.start(); o.stop(ctx.currentTime + 0.09);
+      }
+
+      function startMusic(){
+        if (!ctx) return;
+        if (musicTimer) return;
+        let step = 0;
+        musicTimer = setInterval(()=>{
+          if (!state.music) return; // keep timer, but silent
+          // little 4-note lullaby-like arpeggio
+          const notes = [523.25, 659.25, 783.99, 659.25]; // C5 E5 G5 E5
+          const f = notes[step % notes.length]; step++;
+          const o = ctx.createOscillator(); const g = ctx.createGain();
+          o.type = 'sine'; o.frequency.value = f;
+          g.gain.setValueAtTime(0.0001, ctx.currentTime);
+          g.gain.linearRampToValueAtTime(0.12, ctx.currentTime + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
+          o.connect(g); g.connect(musicGain);
+          o.start(); o.stop(ctx.currentTime + 0.36);
+        }, 900);
+      }
+
+      function setMusicEnabled(on){ if (musicGain) musicGain.gain.value = on ? 0.12 : 0.0; }
+      function setSfxEnabled(on){ if (sfxGain) sfxGain.gain.value = on ? 0.9 : 0.0; }
+
+      function resume(){ if (ctx && ctx.state === 'suspended') ctx.resume(); }
+
+      return { ensure, playPop, playFire, startMusic, setMusicEnabled, setSfxEnabled, resume };
+    })();
+
+    // === Speech (letter name) ===
+    function sayLetter(letter){
+      if (!('speechSynthesis' in window)) return;
+      // Keep it short and friendly
+      const utter = new SpeechSynthesisUtterance(letter.toUpperCase());
+      utter.rate = 0.9; utter.pitch = 1.2; utter.volume = state.sfx ? 1 : 0; // tie to SFX toggle
+      try { window.speechSynthesis.cancel(); window.speechSynthesis.speak(utter); } catch {}
+    }
+
+    // === Entities ===
+    function makeBalloon(letter){
+      const radius = Math.max(36, Math.min(W, H) * 0.045); // scale with screen
+      return {
+        letter, color: balloonPalette[randInt(0, balloonPalette.length-1)],
+        x: rand(radius*1.2, W - radius*1.2),
+        y: H + radius + rand(0, 60),
+        r: radius,
+        vy: rand(18, 28) * (H/800), // slow, kid-friendly
+        wobble: rand(0, Math.PI*2), wobbleSpeed: rand(0.6, 1.4), wobbleAmp: rand(3, 8) * (W/800),
+        alive: true, popping: false, popT: 0,
+      };
+    }
+
+    function makePracticeBalloon(){
+      const letter = letters[currentPracticeIndex];
+      const b = makeBalloon(letter);
+      b.x = W/2; b.y = H*0.65; b.vy = 10; b.r *= 1.15; // center and bigger for focus
+      return b;
+    }
+
+    function makeProjectile(target){
+      return {
+        x: W/2, y: H - 40 * DPR, speed: 520 * (Math.max(W,H)/1000), target, done: false,
+      };
+    }
+
+    function spawnConfetti(x,y){
+      const n = 22;
+      for (let i=0;i<n;i++){
+        confetti.push({
+          x, y, vx: rand(-120,120), vy: rand(-60, -140), life: rand(0.6, 1.1), t:0, size: rand(3,6), color: balloonPalette[randInt(0, balloonPalette.length-1)]
+        });
+      }
+      // sparkles
+      for (let i=0;i<12;i++){
+        confetti.push({ spark:true, x, y, vx: Math.cos(i/12 * Math.PI*2)*rand(40,120), vy: Math.sin(i/12 * Math.PI*2)*rand(40,120), life: .35, t:0, size: rand(2,3), color: '#ffffff' });
+      }
+    }
+
+    function addPraise(x,y){
+      praises.push({ x, y, text: praiseWords[randInt(0, praiseWords.length-1)], t:0, life: 1.3 });
+    }
+
+    // === Cannon drawing ===
+    function drawCannon(){
+      const baseY = H - 10 * DPR;
+      const baseX = W/2;
+      // wheels
+      ctx.save();
+      ctx.translate(baseX, baseY);
+      ctx.fillStyle = '#475569';
+      ctx.beginPath(); ctx.arc(-22*DPR, -4*DPR, 10*DPR, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(22*DPR, -4*DPR, 10*DPR, 0, Math.PI*2); ctx.fill();
+      // barrel
+      ctx.rotate( (lastTargetDir || 0) * 0.4 );
+      const grd = ctx.createLinearGradient(0,0, 0,-60*DPR); grd.addColorStop(0,'#94a3b8'); grd.addColorStop(1,'#cbd5e1');
+      ctx.fillStyle = grd;
+      ctx.beginPath();
+      ctx.roundRect(-16*DPR, -20*DPR, 32*DPR, -60*DPR, 12*DPR);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Track barrel aim direction for a gentle rotation
+    let lastTargetDir = 0; // -1 .. 1 (left/right)
+
+    // === Spawning & Flow ===
+    function reset(){
+      balloons = []; projectiles = []; confetti = []; praises = [];
+      poppedCount = 0; elapsed = 0; spawnTimer = 0; currentPracticeIndex = 0;
+      if (state.mode === 'practice') {
+        balloons.push(makePracticeBalloon());
+        nowLetterWrap.style.display = '';
+        renderCurrentLetterHUD();
+      } else {
+        nowLetterWrap.style.display = 'none';
+      }
+      updateScoreHUD();
+    }
+
+    function renderCurrentLetterHUD(){
+      const ch = letters[currentPracticeIndex] || 'z';
+      nowLetterEl.textContent = state.letterCase === 'upper' ? ch.toUpperCase() : ch;
+    }
+
+    function updateScoreHUD(){
+      poppedEl.textContent = String(poppedCount);
+    }
+
+    function formatTime(sec){
+      const m = Math.floor(sec/60); const s = Math.floor(sec%60);
+      return m + ':' + String(s).padStart(2,'0');
+    }
+
+    // === Input ===
+    document.addEventListener('keydown', (e)=>{
+      // Ensure audio can start on first interaction
+      AudioKit.ensure(); AudioKit.resume(); AudioKit.startMusic();
+
+      if (e.repeat) return; // ignore held key repeats for toddlers pressing down
+      const k = e.key.toLowerCase();
+      if (k.length !== 1 || k < 'a' || k > 'z') return;
+      handleLetterInput(k);
+    });
+
+    function handleLetterInput(k){
+      // Focus hint once
+      if (!requireFocusNoteShown) {
+        const help = document.querySelector('.help'); help.style.opacity = 0.0; requireFocusNoteShown = true;
+      }
+
+      if (state.mode === 'practice'){
+        const expected = letters[currentPracticeIndex];
+        if (k === expected){
+          if (balloons[0]) fireAt(balloons[0]);
+        } else {
+          // gentle nudge to hint mismatch
+          if (balloons[0]) balloons[0].wobbleAmp += 2;
+        }
+        return;
+      }
+
+      // Game mode: pop first matching balloon (prefer the lowest on screen)
+      let best = null;
+      for (const b of balloons){ if (b.alive && b.letter === k){ if (!best || b.y > best.y) best = b; } }
+      if (best){ fireAt(best); } else {
+        // miss: tiny friendly wiggle of all balloons
+        balloons.forEach(b=> b.wobbleAmp = Math.min(b.wobbleAmp + 1.5, 12));
+      }
+    }
+
+    function fireAt(balloon){
+      if (!balloon || !balloon.alive) return;
+      const p = makeProjectile(balloon); projectiles.push(p);
+      // Set aim dir
+      lastTargetDir = clamp((balloon.x - W/2) / (W/2), -1, 1);
+      AudioKit.playFire();
+    }
+
+    function popBalloon(balloon){
+      if (!balloon.alive) return;
+      balloon.alive = false; balloon.popping = true; balloon.popT = 0;
+      poppedCount++; updateScoreHUD();
+      const dispLetter = state.letterCase === 'upper' ? balloon.letter.toUpperCase() : balloon.letter;
+      sayLetter(dispLetter);
+      AudioKit.playPop();
+      spawnConfetti(balloon.x, balloon.y - balloon.r*0.2);
+      addPraise(balloon.x, balloon.y - balloon.r*1.2);
+
+      if (state.mode === 'practice'){
+        currentPracticeIndex = (currentPracticeIndex + 1) % letters.length;
+        renderCurrentLetterHUD();
+        // spawn next after a short beat
+        setTimeout(()=>{ balloons = balloons.filter(b=>b.alive); balloons.push(makePracticeBalloon()); }, 450);
+      }
+    }
+
+    // === Drawing ===
+    function drawBackground(){
+      // subtle clouds
+      ctx.save();
+      for (let i=0;i<5;i++){
+        const y = (i*80 + (elapsed*8*i)%H) % H;
+        ctx.fillStyle = 'rgba(255,255,255,0.25)';
+        ctx.beginPath();
+        ctx.ellipse((i*200 + 100) % W, y, 120*DPR, 28*DPR, 0, 0, Math.PI*2); ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function drawBalloon(b){
+      const label = state.letterCase === 'upper' ? b.letter.toUpperCase() : b.letter;
+      const r = b.r * (b.popping ? (1 + b.popT*0.2) : 1);
+      // string
+      ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 2*DPR; ctx.beginPath(); ctx.moveTo(b.x, b.y + r*0.8); ctx.lineTo(b.x, b.y + r*1.6); ctx.stroke();
+      // balloon body
+      const grd = ctx.createRadialGradient(b.x - r*0.3, b.y - r*0.4, r*0.1, b.x, b.y, r);
+      grd.addColorStop(0, '#ffffffaa'); grd.addColorStop(1, b.color);
+      ctx.fillStyle = grd; ctx.beginPath(); ctx.ellipse(b.x, b.y, r*0.85, r, 0, 0, Math.PI*2); ctx.fill();
+      // knot
+      ctx.fillStyle = b.color; ctx.beginPath(); ctx.moveTo(b.x-6*DPR, b.y+r*0.7); ctx.lineTo(b.x+6*DPR, b.y+r*0.7); ctx.lineTo(b.x, b.y+r*0.9); ctx.closePath(); ctx.fill();
+      // letter
+      ctx.fillStyle = '#0f172a';
+      ctx.font = `${Math.floor(r*0.95)}px/1.1 ui-rounded, system-ui, Arial Black, Arial, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(label, b.x, b.y);
+    }
+
+    function drawProjectile(p){
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(Math.atan2(p.vy||0, p.vx||1));
+      const s = 7*DPR;
+      ctx.fillStyle = '#fcd34d';
+      ctx.beginPath();
+      ctx.moveTo(0, -s); ctx.lineTo(s*0.6, 0); ctx.lineTo(0, s); ctx.lineTo(-s*0.6, 0); ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawConfetti(){
+      for (const c of confetti){
+        ctx.save(); ctx.globalAlpha = 1 - c.t / c.life; ctx.fillStyle = c.color;
+        if (c.spark){
+          ctx.beginPath(); ctx.arc(c.x, c.y, c.size, 0, Math.PI*2); ctx.fill();
+        } else {
+          ctx.translate(c.x, c.y); ctx.rotate((c.t*10) % (Math.PI*2));
+          ctx.fillRect(-c.size/2, -c.size/2, c.size, c.size);
+        }
+        ctx.restore();
+      }
+    }
+
+    function drawPraises(){
+      for (const p of praises){
+        const a = 1 - p.t / p.life;
+        ctx.save();
+        ctx.globalAlpha = a;
+        ctx.fillStyle = '#0ea5e9';
+        ctx.font = `${Math.floor(28*DPR)}px/1 ui-rounded, system-ui, Arial Black, Arial, sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(p.text, p.x, p.y - p.t*30);
+        ctx.restore();
+      }
+    }
+
+    // === Update ===
+    function update(dt){
+      elapsed += dt; timeEl.textContent = formatTime(elapsed);
+
+      // spawn in game mode
+      if (state.mode === 'game'){
+        spawnTimer -= dt; if (spawnTimer <= 0){
+          spawnTimer = spawnInterval;
+          if (balloons.filter(b=>b.alive).length < maxBalloons){
+            // random letter
+            const letter = letters[randInt(0, letters.length-1)];
+            balloons.push(makeBalloon(letter));
+          }
+        }
+      }
+
+      // balloons motion
+      for (const b of balloons){
+        if (!b.alive && !b.popping) continue;
+        b.wobble += dt * b.wobbleSpeed;
+        b.x += Math.cos(b.wobble) * (b.wobbleAmp * dt);
+        b.y -= b.vy * dt;
+        if (b.popping){ b.popT += dt; if (b.popT > 0.22){ b.popping = false; } }
+      }
+      balloons = balloons.filter(b=> b.popping || (b.alive && b.y + b.r > -40));
+
+      // projectiles
+      for (const p of projectiles){
+        const t = p.target;
+        if (!t || !t.alive){ p.done = true; continue; }
+        const dx = t.x - p.x; const dy = t.y - p.y; const dist = Math.hypot(dx, dy);
+        const v = p.speed * dt; const nx = dx / (dist||1); const ny = dy / (dist||1);
+        p.vx = nx; p.vy = ny; p.x += nx * v; p.y += ny * v;
+        if (dist < t.r*0.7){ p.done = true; popBalloon(t); }
+      }
+      projectiles = projectiles.filter(p=>!p.done);
+
+      // confetti
+      for (const c of confetti){
+        c.t += dt; c.x += c.vx * dt; c.y += c.vy * dt; c.vy += 240 * dt; // gravity
+      }
+      confetti = confetti.filter(c=> c.t < c.life);
+
+      // praises
+      for (const p of praises){ p.t += dt; }
+      praises = praises.filter(p=> p.t < p.life);
+
+      // gentle decay of wobbleAmp to keep things calm
+      for (const b of balloons){ b.wobbleAmp = lerp(b.wobbleAmp, 6, dt*0.5); }
+    }
+
+    // === Main loop ===
+    function loop(ts){
+      if (!lastTime) lastTime = ts;
+      const dt = Math.min(0.033, (ts - lastTime) / 1000); // cap dt
+      lastTime = ts;
+
+      // clear
+      ctx.clearRect(0,0,W,H);
+      drawBackground();
+
+      // draw
+      for (const b of balloons) drawBalloon(b);
+      for (const p of projectiles) drawProjectile(p);
+      drawConfetti();
+      drawPraises();
+      drawCannon();
+
+      update(dt);
+      requestAnimationFrame(loop);
+    }
+
+    // === UI wiring ===
+    modePractice.addEventListener('change', ()=>{ if (modePractice.checked){ state.mode='practice'; saveSettings(); reset(); }});
+    modeGame.addEventListener('change', ()=>{ if (modeGame.checked){ state.mode='game'; saveSettings(); reset(); }});
+    caseUpper.addEventListener('change', ()=>{ if (caseUpper.checked){ state.letterCase='upper'; saveSettings(); renderCurrentLetterHUD(); }});
+    caseLower.addEventListener('change', ()=>{ if (caseLower.checked){ state.letterCase='lower'; saveSettings(); renderCurrentLetterHUD(); }});
+    musicToggle.addEventListener('change', ()=>{ state.music = musicToggle.checked; saveSettings(); AudioKit.ensure(); AudioKit.setMusicEnabled(state.music); AudioKit.startMusic(); });
+    sfxToggle.addEventListener('change', ()=>{ state.sfx = sfxToggle.checked; saveSettings(); AudioKit.ensure(); AudioKit.setSfxEnabled(state.sfx); });
+    resetBtn.addEventListener('click', reset);
+
+    // Kick off
+    reset();
+    requestAnimationFrame(loop);
+
+    // Accessibility: help text fades after 5s even without input
+    setTimeout(()=>{ const help = document.querySelector('.help'); help.style.transition = 'opacity .7s'; help.style.opacity = 0.0; }, 5000);
+
+    // Inform users on iOS that first key enables audio
+    window.addEventListener('pointerdown', ()=>{ AudioKit.ensure(); AudioKit.startMusic(); }, { once: true });
+
+  })();
+  </script>
+</body>
+</html>

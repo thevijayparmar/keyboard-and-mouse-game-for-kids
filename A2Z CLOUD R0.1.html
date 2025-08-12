@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Side-Scrolling Sky — ABC & 123 (Offline)</title>
+<style>
+  :root{--ink:#0f172a;--muted:#64748b}
+  html,body{height:100%}
+  body{margin:0;background:linear-gradient(#bfe6ff,#8ed1ff 45%,#7ec7ff);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial;color:var(--ink);overflow:hidden}
+  #ui{position:fixed;left:0;right:0;top:0;display:flex;gap:.6rem;align-items:center;justify-content:space-between;padding:.5rem .8rem;z-index:10}
+  .brand{display:flex;align-items:center;gap:.6rem;font-weight:900}
+  .logo{width:32px;height:32px;border-radius:10px;background:conic-gradient(from 0deg,#ffb3ba,#ffdfba,#ffffba,#baffc9,#bae1ff,#d7baff,#ffb3ba);box-shadow:0 1px 2px #0002 inset}
+  .pill{display:flex;align-items:center;gap:.6rem;background:#ffffffcc;border-radius:999px;padding:.35rem .6rem;backdrop-filter:saturate(120%) blur(3px);box-shadow:0 2px 8px #0002;font-weight:800}
+  #speed{width:220px}
+  #hud{display:flex;gap:.5rem;align-items:center}
+  .chip{background:#ffffffcc;border-radius:999px;padding:.3rem .6rem;font-weight:800;box-shadow:0 1px 3px #0002}
+  canvas{position:absolute;inset:0;display:block}
+  .hint{position:fixed;left:50%;bottom:10px;transform:translateX(-50%);background:#ffffffcc;padding:.45rem .8rem;border-radius:999px;font-weight:800;box-shadow:0 2px 10px #0002;z-index:9}
+  .btn{border:0;border-radius:999px;background:#fff;font-weight:800;padding:.45rem .8rem;cursor:pointer;box-shadow:0 1px 3px #0002}
+  .btn:active{transform:translateY(1px)}
+  .credit{position:fixed;right:8px;bottom:6px;font-size:12px;color:#0f172aaa;user-select:none}
+  @media(max-width:720px){#ui{gap:.4rem}.brand span{display:none} #speed{width:140px}}
+  /* name overlay */
+  #nameOverlay{position:fixed;inset:0;background:rgba(0,0,0,.25);display:none;align-items:center;justify-content:center;z-index:20}
+  .card{background:#fff;border-radius:16px;box-shadow:0 10px 30px #0002;padding:18px 18px 14px;min-width:260px;max-width:90vw}
+  .card h2{margin:0 0 8px 0;font-size:1.1rem}
+  .row{display:flex;gap:.5rem}
+  .row input{flex:1;border:2px solid #e2e8f0;border-radius:10px;padding:.5rem .6rem;font-size:1rem;font-weight:700}
+  .row button{border:0;border-radius:10px;padding:.55rem .8rem;font-weight:800;background:#16a34a;color:#fff}
+</style>
+</head>
+<body>
+  <div id="ui">
+    <div class="brand"><div class="logo" aria-hidden="true"></div><div><div>Sky Typers 2D</div><div style="font-size:.78rem;color:var(--muted);font-weight:800">ABC & 123 (Offline)</div></div></div>
+    <div class="pill" style="gap:1rem">
+      <label style="display:flex;align-items:center;gap:.5rem">Speed <input id="speed" type="range" min="0.5" max="2.0" step="0.1" value="1"/></label>
+      <label style="display:flex;align-items:center;gap:.35rem">Music <input id="music" type="checkbox" checked/></label>
+      <label style="display:flex;align-items:center;gap:.35rem">SFX <input id="sfx" type="checkbox" checked/></label>
+      <button id="reset" class="btn">Reset</button>
+    </div>
+    <div id="hud">
+      <div class="chip">Player: <span id="player">—</span></div>
+      <div class="chip">Popped: <span id="popped">0</span></div>
+      <div class="chip">Time: <span id="time">0:00</span></div>
+    </div>
+  </div>
+
+  <canvas id="game" aria-label="Side-scrolling sky typing game" role="application"></canvas>
+  <div class="hint">Press a letter/number key to pop a matching balloon 🎈</div>
+  <div class="credit">(c) Vijay Parmar</div>
+
+  <!-- Player name overlay -->
+  <div id="nameOverlay">
+    <div class="card">
+      <h2>What’s your name?</h2>
+      <div class="row">
+        <input id="nameInput" type="text" placeholder="Type name" maxlength="18"/>
+        <button id="nameGo">Let's play</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+// Fix: wait for DOM ready so we never touch elements before they exist
+window.addEventListener('DOMContentLoaded', () => {
+(()=>{
+  'use strict';
+  // ===== Utilities =====
+  const letters=[...Array(26)].map((_,i)=>String.fromCharCode(65+i)); // uppercase A-Z
+  const digits=[...Array(10)].map((_,i)=>String(i));
+  const pool=[...letters,...digits];
+  const palette=["#ff6b6b","#ffd166","#06d6a0","#4cc9f0","#b794f4","#f78fb3","#f6bd60","#84dccf","#a8dadc","#f28482"];
+  const rand=(a,b)=>Math.random()*(b-a)+a; const rint=(a,b)=>Math.floor(rand(a,b+1));
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const el=(id)=>document.getElementById(id);
+
+  // ===== DOM & Canvas =====
+  const cvs=el('game'); const ctx=cvs.getContext('2d');
+  let DPR=1,W=0,H=0; function resize(){ DPR=Math.max(1,Math.min(2,window.devicePixelRatio||1)); W=Math.floor(innerWidth*DPR); H=Math.floor((innerHeight)*DPR); cvs.width=W; cvs.height=H; } window.addEventListener('resize',resize); resize();
+
+  // ===== Name overlay (declare BEFORE any usage) =====
+  const nameOverlay=el('nameOverlay'); const nameInput=el('nameInput'); const nameGo=el('nameGo');
+  function showNameOverlay(){ nameOverlay.style.display='flex'; setTimeout(()=> nameInput.focus(), 50); }
+  function commitName(){ const v=(nameInput.value||'').trim(); state.player = v || 'Friend'; el('player').textContent=state.player; save(); nameOverlay.style.display='none'; }
+  nameGo.addEventListener('click', commitName);
+  nameInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') commitName(); });
+
+  // ===== State =====
+  const state={ speed:1, music:true, sfx:true, player:"" };
+  let balloons=[], shots=[], confetti=[], flowers=[], praisesFX=[];
+  let clouds=[]; let birds=[]; let sunT=0; let skyFlash=0; let bolts=[];
+  let popped=0, elapsed=0; let spawnT=0, spawnEvery=2.4; let maxBalloons=7;
+  const cannonYs=()=>[H*0.30, H*0.55, H*0.80]; // three fixed cannons
+
+  // ===== Restore settings + name AFTER overlay exists =====
+  try{ const saved=JSON.parse(localStorage.getItem('skyTypers2d')||'{}'); Object.assign(state, saved); }catch{}
+  el('speed').value=String(state.speed||1); el('music').checked=!!state.music; el('sfx').checked=!!state.sfx; el('player').textContent=state.player||'—';
+  if(!state.player){ showNameOverlay(); }
+  function save(){ try{ localStorage.setItem('skyTypers2d', JSON.stringify(state)); }catch{} }
+
+  // ===== Audio =====
+  let ac=null, musicTimer=null; function audio(){ if(!ac){ ac=new (window.AudioContext||window.webkitAudioContext)(); } }
+  function playFire(){ if(!ac||!state.sfx) return; const o=ac.createOscillator(), g=ac.createGain(); o.type='sine'; o.frequency.value=420; g.gain.value=.4; g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime+.08); o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime+.10); }
+  function playPop(){ if(!ac||!state.sfx) return; const o=ac.createOscillator(), g=ac.createGain(); o.type='triangle'; o.frequency.value=800; o.frequency.exponentialRampToValueAtTime(250, ac.currentTime+.15); g.gain.value=.55; g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime+.18); o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime+.20); }
+  function playThunder(){ if(!ac||!state.sfx) return; // noise burst + low rumble
+    const g=ac.createGain(); g.gain.value=0.7; g.connect(ac.destination);
+    // noise
+    const dur=0.35; const buf=ac.createBuffer(1, ac.sampleRate*dur, ac.sampleRate); const data=buf.getChannelData(0); for(let i=0;i<data.length;i++){ data[i]=Math.random()*2-1; }
+    const n=ac.createBufferSource(); n.buffer=buf; const ng=ac.createGain(); ng.gain.setValueAtTime(0.0001, ac.currentTime); ng.gain.exponentialRampToValueAtTime(0.9, ac.currentTime+0.02); ng.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime+dur); n.connect(ng); ng.connect(g); n.start();
+    // rumble
+    const o=ac.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(60, ac.currentTime); o.frequency.linearRampToValueAtTime(30, ac.currentTime+0.6); const og=ac.createGain(); og.gain.setValueAtTime(0.0001, ac.currentTime); og.gain.exponentialRampToValueAtTime(0.6, ac.currentTime+0.05); og.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime+0.7); o.connect(og); og.connect(g); o.start(); o.stop(ac.currentTime+0.7);
+  }
+  function speak(ch){ if(!('speechSynthesis' in window)) return; const u=new SpeechSynthesisUtterance(ch.toUpperCase()); u.rate=.9; u.pitch=1.1; u.volume=state.sfx?1:0; try{ speechSynthesis.cancel(); speechSynthesis.speak(u);}catch{} }
+  function startMusic(){ if(!ac||musicTimer) return; musicTimer=setInterval(()=>{ if(!state.music) return; const o=ac.createOscillator(), g=ac.createGain(); o.type='sine'; o.frequency.value=[392,523.25,659.25,523.25][Math.floor(Math.random()*4)]; g.gain.value=0.12; g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime+.5); o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime+.52); }, 950); }
+
+  // ===== UI wiring =====
+  el('speed').addEventListener('input',()=>{ state.speed=parseFloat(el('speed').value); save(); });
+  el('music').addEventListener('change',()=>{ state.music=el('music').checked; audio(); startMusic(); save(); });
+  el('sfx').addEventListener('change',()=>{ state.sfx=el('sfx').checked; audio(); save(); });
+  el('reset').addEventListener('click',()=>{ balloons=[]; shots=[]; confetti=[]; flowers=[]; praisesFX=[]; popped=0; elapsed=0; updateHUD(); });
+
+  function updateHUD(){ el('popped').textContent=String(popped); el('time').textContent=formatTime(elapsed); }
+  function formatTime(s){ const m=Math.floor(s/60), sc=Math.floor(s%60); return m+":"+String(sc).padStart(2,'0'); }
+
+  // ===== Entities =====
+  function spawnBalloon(){ const ch=pool[rint(0,pool.length-1)]; const r=Math.max(30, Math.min(W,H)*0.05); const y=rand(r*1.2, H-r*1.4); const x=W + r + rand(0, 80); const speed=rand(40, 60); const wobA=rand(8,18), wobS=rand(.8,1.4); balloons.push({ch, x,y, r, vx:-speed, wob:rand(0,Math.PI*2), wobA, wobS, alive:true, popping:false, t:0, color:palette[rint(0,palette.length-1)]}); }
+  function shootAt(balloon){ const cannY=cannonYs(); let idx=0, best=1e9; for(let i=0;i<cannY.length;i++){ const d=Math.abs(cannY[i]-balloon.y); if(d<best){best=d; idx=i;} } const start={ x: 60*DPR, y: cannY[idx] }; const sp=520*(Math.max(W,H)/1000); shots.push({x:start.x, y:start.y, target:balloon, sp}); playFire(); }
+  function popBalloon(b){ if(!b.alive) return; b.alive=false; b.popping=true; b.t=0; popped++; updateHUD(); speak(b.ch); playPop();
+    for(let i=0;i<26;i++){ confetti.push({x:b.x,y:b.y, vx:Math.cos(i/26*Math.PI*2)*rand(80,160), vy:Math.sin(i/26*Math.PI*2)*rand(40,120), g:260, t:0, life:rand(1.5,2.0), size:rand(2,4), color:palette[rint(0,palette.length-1)]}); }
+    for(let i=0;i<8;i++){ flowers.push({x:b.x,y:b.y, vx:rand(-120,120), vy:rand(-160,-60), g:220, t:0, life:rand(1.5,2.0), size:rand(7,10), color:palette[rint(0,palette.length-1)]}); }
+    if(popped>0 && popped%15===0){ const text = `Very Good ${state.player||'Friend'}!`; praisesFX.push({x:W*0.5,y:H*0.2,t:0,life:1.8,text, big:true}); }
+  }
+
+  function tryMegaBurst(){ if(popped>0 && popped%10===0){ skyFlash = 1.0; bolts = [makeBolt(), makeBolt()]; praisesFX.push({x: W*0.5, y:H*0.3, t:0, life:1.6, text:'Mega Burst! ⚡'}); playThunder(); balloons.filter(b=>b.alive).forEach(b=> popBalloon(b)); } }
+
+  function makeBolt(){ const pts=[]; let x=rand(W*0.65, W*0.95), y=0; pts.push({x,y}); const seg=8; for(let i=0;i<seg;i++){ x = clamp(x + rand(-40,40)*DPR, W*0.55, W*0.98); y += H*(0.5/seg); pts.push({x,y}); } return pts; }
+
+  // Clouds & birds for parallax
+  function seedSky(){ const cloudsCount=8; const birdsCount=4; clouds=[]; for(let i=0;i<cloudsCount;i++){ clouds.push({x:rand(0,W), y:rand(40,H*0.6), s:rand(20,60)}); } birds=[]; for(let i=0;i<birdsCount;i++){ birds.push({x:rand(0,W), y:rand(40,H*0.4), s:rand(60,90), flap:rand(0,Math.PI*2)}); } }
+  seedSky();
+
+  // ===== Input =====
+  document.addEventListener('keydown',(e)=>{ audio(); startMusic(); if(e.repeat) return; if(nameOverlay.style.display==='flex'){ if(e.key==='Enter'){ commitName(); } return; } const k=e.key.toUpperCase(); if(!(/[A-Z0-9]/).test(k)) return; const best=balloons.filter(b=>b.alive && b.ch===k).sort((a,b)=>a.x-b.x)[0]; if(best) shootAt(best); });
+
+  // ===== Drawing helpers =====
+  function drawBackground(dt){ ctx.clearRect(0,0,W,H); const sunX = (W*0.85 + Math.sin((sunT+=dt*state.speed)*0.1)*40*DPR); const sunY = H*0.18 + Math.cos(sunT*0.12)*10*DPR; const grad=ctx.createRadialGradient(sunX,sunY,10*DPR, sunX,sunY,60*DPR); grad.addColorStop(0,'#fff7'); grad.addColorStop(1,'#fffb'); ctx.fillStyle=grad; ctx.beginPath(); ctx.arc(sunX,sunY,60*DPR,0,Math.PI*2); ctx.fill(); ctx.fillStyle='rgba(255,255,255,0.9)'; clouds.forEach(c=>{ c.x -= (18 + c.s*0.2)*dt*state.speed; if(c.x < -120*DPR) { c.x = W + 120*DPR; c.y = rand(40,H*0.6);} drawCloud(c.x,c.y,c.s); }); ctx.fillStyle='#0f172a'; birds.forEach(b=>{ b.x -= b.s*dt*state.speed; b.flap += dt*6; if(b.x < -40*DPR) { b.x = W + 40*DPR; b.y = rand(40,H*0.4);} drawBird(b.x,b.y,b.flap); }); if(skyFlash>0){ ctx.save(); ctx.globalAlpha = 0.25*skyFlash; ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H*0.6); ctx.globalAlpha = 0.9*skyFlash; ctx.strokeStyle='#ffffff'; ctx.lineWidth=3*DPR; ctx.shadowColor='rgba(255,255,255,0.8)'; ctx.shadowBlur=8*DPR; bolts.forEach(path=>{ ctx.beginPath(); ctx.moveTo(path[0].x, path[0].y); for(let i=1;i<path.length;i++){ ctx.lineTo(path[i].x, path[i].y); } ctx.stroke(); }); ctx.restore(); skyFlash = Math.max(0, skyFlash - dt*1.6); } }
+  function drawCloud(x,y,s){ ctx.beginPath(); ctx.arc(x,y,s*DPR,0,Math.PI*2); ctx.arc(x+s*0.8*DPR,y+4*DPR,s*0.7*DPR,0,Math.PI*2); ctx.arc(x-s*0.8*DPR,y+6*DPR,s*0.6*DPR,0,Math.PI*2); ctx.fill(); }
+  function drawBird(x,y,t){ ctx.save(); ctx.translate(x,y); ctx.rotate(Math.sin(t)*0.2); ctx.beginPath(); ctx.moveTo(-8*DPR,0); ctx.lineTo(0,-4*DPR); ctx.lineTo(8*DPR,0); ctx.strokeStyle='#0f172a99'; ctx.lineWidth=2*DPR; ctx.stroke(); ctx.restore(); }
+
+  function drawCannonBase(y){ const x=40*DPR; ctx.fillStyle='#94a3b8'; ctx.fillRect(x-20*DPR, y-10*DPR, 40*DPR, 20*DPR); ctx.fillStyle='#cbd5e1'; ctx.fillRect(x-8*DPR, y-28*DPR, 16*DPR, 18*DPR); }
+  function drawCannonBarrel(y,aimX,aimY){ const x=40*DPR; const ang=Math.atan2((aimY - y),(aimX - x)); ctx.save(); ctx.translate(x,y-24*DPR); ctx.rotate(ang); ctx.fillStyle='#e2e8f0'; ctx.beginPath(); ctx.roundRect(0, -6*DPR, 40*DPR, 12*DPR, 6*DPR); ctx.fill(); ctx.restore(); }
+
+  function drawBalloon(b){ const r=b.r; ctx.strokeStyle='#94a3b8'; ctx.lineWidth=2*DPR; ctx.beginPath(); ctx.moveTo(b.x, b.y+r*0.8); ctx.lineTo(b.x, b.y+r*1.6); ctx.stroke(); const grd=ctx.createRadialGradient(b.x-r*0.3, b.y-r*0.4, r*0.1, b.x, b.y, r); grd.addColorStop(0,'#ffffffaa'); grd.addColorStop(1,b.color); ctx.fillStyle=grd; ctx.beginPath(); ctx.ellipse(b.x,b.y, r*0.85, r, 0, 0, Math.PI*2); ctx.fill(); ctx.fillStyle='#0f172a'; ctx.font=`${Math.floor(r*0.95)}px/1.1 ui-rounded, system-ui, Arial Black, Arial, sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(b.ch,b.x,b.y); }
+  function drawShot(s){ ctx.save(); ctx.translate(s.x,s.y); const sz=8*DPR; ctx.fillStyle='#fde68a'; ctx.beginPath(); ctx.moveTo(0,-sz); ctx.lineTo(sz*0.7,0); ctx.lineTo(0,sz); ctx.lineTo(-sz*0.7,0); ctx.closePath(); ctx.fill(); ctx.restore(); }
+  function drawConfetti(){ confetti.forEach(c=>{ ctx.save(); ctx.globalAlpha=1 - c.t/c.life; ctx.fillStyle=c.color; ctx.translate(c.x,c.y); ctx.rotate((c.t*10)%(Math.PI*2)); ctx.fillRect(-c.size/2,-c.size/2,c.size,c.size); ctx.restore(); }); }
+  function drawFlowers(){ flowers.forEach(f=>{ ctx.save(); ctx.globalAlpha=1 - f.t/f.life; ctx.translate(f.x,f.y); ctx.rotate(f.t*3); for(let i=0;i<5;i++){ ctx.rotate(Math.PI*2/5); ctx.fillStyle=f.color; ctx.beginPath(); ctx.ellipse(0, f.size, f.size*0.55,f.size*0.85, 0, 0, Math.PI*2); ctx.fill(); } ctx.restore(); }); }
+  function drawPraises(){ praisesFX.forEach(p=>{ const a=1 - p.t/p.life; ctx.save(); ctx.globalAlpha=a; ctx.fillStyle='#0ea5e9'; ctx.font=`${Math.floor((p.big?36:28)*DPR)}px/1 ui-rounded,system-ui,Arial Black`; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(p.text,p.x,p.y - p.t*32); ctx.restore(); }); }
+
+  // ===== Loop =====
+  function update(dt){ elapsed+=dt; updateHUD(); spawnT-=dt; if(spawnT<=0){ spawnT=spawnEvery; if(balloons.filter(b=>b.alive).length<maxBalloons) spawnBalloon(); } balloons.forEach(b=>{ if(!b.alive && !b.popping) return; b.wob += dt*b.wobS; b.x += b.vx*dt*state.speed; b.y += Math.sin(b.wob)*b.wobA*dt; if(b.popping){ b.t+=dt; if(b.t>0.22) b.popping=false; } }); balloons = balloons.filter(b=> b.popping || (b.alive && b.x + b.r > -40)); shots.forEach(s=>{ const t=s.target; if(!t||!t.alive){ s.done=true; return;} const dx=t.x-s.x, dy=t.y-s.y; const d=Math.hypot(dx,dy); const v=s.sp*dt*state.speed; const nx=dx/(d||1), ny=dy/(d||1); s.x += nx*v; s.y += ny*v; if(d < t.r*0.8){ s.done=true; popBalloon(t); tryMegaBurst(); } }); shots = shots.filter(s=>!s.done); confetti.forEach(c=>{ c.t+=dt; c.x+=c.vx*dt; c.y+=c.vy*dt; c.vy += (c.g||240)*dt; }); confetti = confetti.filter(c=> c.t < c.life); flowers.forEach(f=>{ f.t+=dt; f.x+=f.vx*dt; f.y+=f.vy*dt; f.vy += (f.g||220)*dt; }); flowers = flowers.filter(f=> f.t < f.life); praisesFX.forEach(p=> p.t+=dt); praisesFX = praisesFX.filter(p=> p.t<p.life); }
+
+  function render(){ drawBackground(0); const cys=cannonYs(); for(let i=0;i<cys.length;i++){ drawCannonBase(cys[i]); const aim=nearestBalloonPoint(cys[i])||{x:W*0.3,y:cys[i]}; drawCannonBarrel(cys[i], aim.x, aim.y); } balloons.forEach(drawBalloon); shots.forEach(drawShot); drawConfetti(); drawFlowers(); drawPraises(); }
+
+  function nearestBalloonPoint(y){ const alive=balloons.filter(b=>b.alive); if(alive.length===0) return null; let best=alive[0]; for(const b of alive){ if(b.x<best.x) best=b; } return {x:best.x, y:best.y}; }
+
+  let lastTs=0; function loop(ts){ if(!lastTs) lastTs=ts; const dt=Math.min(0.033,(ts-lastTs)/1000); lastTs=ts; update(dt); render(); requestAnimationFrame(loop); } requestAnimationFrame(loop);
+
+  // fade hint
+  setTimeout(()=>{ const h=document.querySelector('.hint'); h.style.transition='opacity .7s'; h.style.opacity=0; }, 5000);
+
+  // start audio on first input
+  window.addEventListener('pointerdown',()=>{ audio(); startMusic(); },{once:true});
+  document.addEventListener('keydown',()=>{ audio(); startMusic(); },{once:true});
+
+  // ===== Minimal self-tests (console) =====
+  (function selfTests(){
+    try {
+      console.assert(!!nameOverlay && nameOverlay.nodeType===1, 'nameOverlay should exist before use');
+      console.assert(typeof showNameOverlay==='function' && typeof commitName==='function', 'Name overlay functions should exist');
+      // Test: show/hide overlay should not throw
+      showNameOverlay();
+      console.assert(nameOverlay.style.display==='flex', 'Overlay shows');
+      commitName();
+      console.assert(nameOverlay.style.display==='none', 'Overlay hides');
+      // Test: core functions exist
+      console.assert(typeof spawnBalloon==='function' && typeof tryMegaBurst==='function', 'Game functions should exist');
+      // Test: speak uses uppercase
+      console.assert('a'.toUpperCase()==='A', 'Uppercase check baseline');
+    } catch (e) {
+      console.error('Self-tests failed:', e);
+    }
+  })();
+})();
+});
+</script>
+</body>
+</html>

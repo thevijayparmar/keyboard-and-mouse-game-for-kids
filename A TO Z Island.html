@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Balloon Pop — Island Edition</title>
+  <style>
+    :root{
+      --sky1:#cfe9ff; --sky2:#8ed1ff; --ink:#0f172a; --glass:#ffffffcc;
+      --muted:#64748b; --chip:#ffffffaa; --accent:#16a34a;
+    }
+    html,body{height:100%}
+    body{margin:0;background:linear-gradient(#eaf6ff,#cfe9ff 40%,#8ed1ff);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial;color:var(--ink);overflow:hidden}
+    #app{display:grid;grid-template-rows:auto auto 1fr; height:100%}
+    header{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:.6rem 1rem}
+    .brand{display:flex;align-items:center;gap:.6rem;font-weight:900}
+    .logo{width:36px;height:36px;border-radius:12px;background:conic-gradient(from 0deg,#ffb3ba,#ffdfba,#ffffba,#baffc9,#bae1ff,#d7baff,#ffb3ba);box-shadow:0 1px 3px #0002 inset,0 1px 2px #0001}
+    .toolbar{display:flex;flex-wrap:wrap;gap:.5rem}
+    .pill{display:inline-flex;align-items:center;gap:.5rem;padding:.35rem;border-radius:999px;background:var(--glass);backdrop-filter:saturate(120%) blur(3px);box-shadow:0 2px 10px #0001}
+    .seg{display:inline-grid;grid-auto-flow:column;background:#fff;border-radius:999px}
+    .seg input{display:none}
+    .seg label{padding:.35rem .7rem;font-weight:800;border-radius:999px;cursor:pointer;font-size:.9rem}
+    .seg input:checked+label{background:#f1f5f9;box-shadow:0 0 0 2px #e2e8f0 inset}
+    .toggle{--w:44px;--h:26px;display:inline-flex;align-items:center;gap:.5rem;font-weight:800}
+    .toggle input{display:none}
+    .track{width:var(--w);height:var(--h);background:#e2e8f0;border-radius:999px;position:relative;box-shadow:inset 0 1px 2px #0001}
+    .thumb{position:absolute;top:2px;left:2px;width:calc(var(--h) - 4px);height:calc(var(--h) - 4px);border-radius:50%;background:#fff;box-shadow:0 1px 2px #0003;transition:transform .2s}
+    .toggle input:checked~.track .thumb{transform:translateX(calc(var(--w) - var(--h)))}
+    .hud{display:flex;align-items:center;gap:.6rem;padding:0 1rem .6rem}
+    .chip{background:var(--chip);padding:.35rem .7rem;border-radius:999px;font-weight:800;box-shadow:0 1px 3px #0001}
+    canvas{width:100%;height:100%;display:block}
+    .hint{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);background:var(--glass);padding:.5rem .8rem;border-radius:999px;font-weight:800;box-shadow:0 2px 12px #0002;pointer-events:none}
+    .btn{border:0;border-radius:999px;background:#fff;font-weight:800;padding:.45rem .8rem;cursor:pointer;box-shadow:0 1px 3px #0002}
+    .btn:active{transform:translateY(1px)}
+    @media (max-width:740px){.brand span{display:none} header{gap:.5rem}}
+  </style>
+</head>
+<body>
+  <div id="app" role="application" aria-label="Balloon Pop — Island Edition">
+    <header>
+      <div class="brand"><div class="logo" aria-hidden="true"></div><div><div>Island Typers</div><div style="font-size:.78rem;color:var(--muted);font-weight:800">ABC & 123</div></div></div>
+      <div class="toolbar">
+        <div class="pill" title="Character source">
+          <div class="seg" id="sourceSeg">
+            <input type="radio" name="src" id="srcSeq" value="sequence" checked>
+            <label for="srcSeq">A–Z + 0–9</label>
+            <input type="radio" name="src" id="srcRnd" value="random">
+            <label for="srcRnd">Random A–Z + 0–9</label>
+          </div>
+        </div>
+        <div class="pill" title="Uppercase or lowercase">
+          <div class="seg" id="caseSeg">
+            <input type="radio" name="case" id="caseUp" value="upper" checked>
+            <label for="caseUp">A B C</label>
+            <input type="radio" name="case" id="caseLo" value="lower">
+            <label for="caseLo">a b c</label>
+          </div>
+        </div>
+        <label class="toggle pill" title="Background music"><input id="musicToggle" type="checkbox" checked><span>Music</span><span class="track"><span class="thumb"></span></span></label>
+        <label class="toggle pill" title="Sound effects"><input id="sfxToggle" type="checkbox" checked><span>SFX</span><span class="track"><span class="thumb"></span></span></label>
+        <button id="resetBtn" class="btn" title="Reset">Reset</button>
+      </div>
+    </header>
+    <div class="hud" aria-live="polite" aria-atomic="true">
+      <div class="chip">Popped: <span id="popped" class="big">0</span></div>
+      <div class="chip">Time: <span id="time" class="big">0:00</span></div>
+      <div class="chip" id="targetWrap">Next: <span id="targetChar">A</span></div>
+    </div>
+    <div style="position:relative;overflow:hidden">
+      <canvas id="game"></canvas>
+      <div class="hint">Type the letter/number to pop 🎈</div>
+    </div>
+  </div>
+
+<script>
+(()=>{
+  // ===== Utilities =====
+  const rand=(a,b)=>Math.random()*(b-a)+a; const rInt=(a,b)=>Math.floor(rand(a,b+1));
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)); const lerp=(a,b,t)=>a+(b-a)*t;
+  const letters=[...Array(26)].map((_,i)=>String.fromCharCode(97+i));
+  const digits=[...Array(10)].map((_,i)=>String(i));
+  const setSeq=[...letters,...digits];
+  const palette=["#ff6b6b","#ffd166","#06d6a0","#4cc9f0","#b794f4","#f78fb3","#f6bd60","#84dccf","#a8dadc","#f28482"];
+  const praises=["Great!","Well done!","You got it!","Awesome!","Super!","Yay!"];
+
+  // ===== DOM =====
+  const cvs=document.getElementById('game'); const ctx=cvs.getContext('2d');
+  const poppedEl=document.getElementById('popped'); const timeEl=document.getElementById('time');
+  const targetWrap=document.getElementById('targetWrap'); const targetCharEl=document.getElementById('targetChar');
+  const srcSeq=document.getElementById('srcSeq'); const srcRnd=document.getElementById('srcRnd');
+  const caseUp=document.getElementById('caseUp'); const caseLo=document.getElementById('caseLo');
+  const musicToggle=document.getElementById('musicToggle'); const sfxToggle=document.getElementById('sfxToggle');
+  const resetBtn=document.getElementById('resetBtn');
+
+  // ===== Sizing =====
+  let W=0,H=0,DPR=1; function resize(){
+    DPR=Math.max(1,Math.min(2,window.devicePixelRatio||1));
+    const rect=cvs.getBoundingClientRect();
+    W=Math.floor(rect.width*DPR); H=Math.floor((window.innerHeight-140)*DPR);
+    cvs.width=W; cvs.height=H;
+  } window.addEventListener('resize',resize); resize();
+
+  // ===== State =====
+  const state={ src:'sequence', case:'upper', music:true, sfx:true };
+  let balloons=[], shots=[], confetti=[], praisesFX=[];
+  let elapsed=0, last=0, popped=0; let seqIndex=0; let spawnT=0, spawnEvery=2.2; let maxBalloons=5;
+  let barrelAim=0;
+
+  // ===== Audio =====
+  const AudioKit=(()=>{ let ac=null, master, sfxG, musG, timer=null; function ensure(){ if(ac) return; ac=new (window.AudioContext||window.webkitAudioContext)(); master=ac.createGain(); master.gain.value=0.9; master.connect(ac.destination); sfxG=ac.createGain(); sfxG.gain.value=state.sfx?0.9:0; sfxG.connect(master); musG=ac.createGain(); musG.gain.value=state.music?0.12:0; musG.connect(master);} function fire(){ if(!ac||!state.sfx) return; const o=ac.createOscillator(), g=ac.createGain(); o.type='sine'; o.frequency.setValueAtTime(420,ac.currentTime); g.gain.value=.5; g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime+.08); o.connect(g); g.connect(sfxG); o.start(); o.stop(ac.currentTime+.09);} function pop(){ if(!ac||!state.sfx) return; const o=ac.createOscillator(), g=ac.createGain(); o.type='triangle'; o.frequency.setValueAtTime(800,ac.currentTime); o.frequency.exponentialRampToValueAtTime(250,ac.currentTime+.14); g.gain.value=.6; g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime+.16); o.connect(g); g.connect(sfxG); o.start(); o.stop(ac.currentTime+.18);} function startMusic(){ if(!ac) return; if(timer) return; let step=0; timer=setInterval(()=>{ if(!state.music) return; const notes=[392,523.25,659.25,523.25]; const f=notes[step++%notes.length]; const o=ac.createOscillator(), g=ac.createGain(); o.type='sine'; o.frequency.value=f; g.gain.setValueAtTime(0.0001, ac.currentTime); g.gain.linearRampToValueAtTime(.12, ac.currentTime+.02); g.gain.exponentialRampToValueAtTime(.0001, ac.currentTime+.4); o.connect(g); g.connect(musG); o.start(); o.stop(ac.currentTime+.42); }, 950);} function setMus(on){ if(musG) musG.gain.value=on?0.12:0;} function setSfx(on){ if(sfxG) sfxG.gain.value=on?0.9:0;} function resume(){ if(ac&&ac.state==='suspended') ac.resume(); } return {ensure,fire,pop,startMusic,setMus,setSfx,resume}; })();
+
+  // Speech for letter/number
+  function speak(ch){ if(!('speechSynthesis' in window)) return; const u=new SpeechSynthesisUtterance((state.case==='upper'?ch.toUpperCase():ch)); u.rate=0.9; u.pitch=1.15; u.volume=state.sfx?1:0; try{speechSynthesis.cancel(); speechSynthesis.speak(u);}catch{} }
+
+  // ===== Entities =====
+  function makeBalloon(ch){ const r=Math.max(34,(Math.min(W,H))*0.045); const edge=rInt(0,3); // spawn around ocean edge
+    let x,y; const margin=r*1.2; const oceanY=H*0.58; // below horizon
+    if(edge===0){ x=rand(margin,W-margin); y=H+rand(r,100); } // bottom
+    else if(edge===1){ x=rand(-60, -r); y=rand(oceanY+40,H-20); } // left
+    else if(edge===2){ x=rand(W+r, W+60); y=rand(oceanY+40,H-20);} // right
+    else { x=rand(margin,W-margin); y=H+rand(r,120);} // fallback bottom
+    return { ch:ch, color:palette[rInt(0,palette.length-1)], x,y, r, vy:rand(18,26)*(H/900), vx:rand(-10,10), wob:rand(0,Math.PI*2), wobA:rand(3,9)*(W/900), wobS:rand(0.6,1.2), alive:true, popping:false, t:0 };
+  }
+  function makeShot(target){ return { x:W*0.5, y:H*0.58-24*DPR, sp:560*(Math.max(W,H)/1000), target, done:false }; }
+  function spawnSparksAndFlowers(x,y){ // sparks
+    for(let i=0;i<18;i++){ confetti.push({ x,y, vx:Math.cos(i/18*Math.PI*2)*rand(60,140), vy:Math.sin(i/18*Math.PI*2)*rand(60,140)-30, g:200, life:rand(.4,.8), t:0, size:rand(2,4), color:'#fff', spark:true }); }
+    // colorful bits
+    for(let i=0;i<18;i++){ confetti.push({ x,y, vx:rand(-140,140), vy:rand(-160,-40), g:260, life:rand(.7,1.2), t:0, size:rand(3,6), color:palette[rInt(0,palette.length-1)] }); }
+    // flowers (simple 5-petal)
+    for(let i=0;i<6;i++){ confetti.push({ flower:true, x,y, vx:rand(-100,100), vy:rand(-160,-60), g:220, life:1.1, t:0, size:rand(8,12), color:palette[rInt(0,palette.length-1)] }); }
+  }
+  function praise(x,y){ praisesFX.push({x,y,t:0,life:1.3,text:praises[rInt(0,praises.length-1)]}); }
+
+  // ===== Ocean & Island (isometric style) =====
+  function drawWorld(){
+    // horizon & sun
+    const horizon=H*0.55; const grad=ctx.createLinearGradient(0,horizon,0,H); grad.addColorStop(0,'#7ecbff'); grad.addColorStop(1,'#4aa3ff'); ctx.fillStyle=grad; ctx.fillRect(0,horizon,W,H-horizon);
+    // gentle waves
+    ctx.save(); ctx.globalAlpha=0.25; ctx.strokeStyle="#ffffff"; ctx.lineWidth=1*DPR;
+    for(let i=0;i<5;i++){ const y=horizon+ i*16*DPR + (Math.sin((elapsed+i)*0.8)*2*DPR);
+      ctx.beginPath(); for(let x=0;x<W;x+=14*DPR){ ctx.moveTo(x,y); ctx.lineTo(x+8*DPR,y+1.5*DPR);} ctx.stroke(); }
+    ctx.restore();
+
+    // floating island top (diamond) in isometric
+    const isoY=horizon-10*DPR; const topW=220*DPR, topH=100*DPR;
+    const cx=W*0.5; // center
+    // shadow on water
+    ctx.save(); ctx.fillStyle='rgba(0,0,0,0.10)'; ctx.beginPath(); ctx.ellipse(cx, isoY+topH*1.2, topW*0.8, topH*0.35, 0, 0, Math.PI*2); ctx.fill(); ctx.restore();
+
+    // grass top
+    ctx.save();
+    const grassGrad=ctx.createLinearGradient(0,isoY-topH/2,0,isoY+topH/2); grassGrad.addColorStop(0,'#8ddf7c'); grassGrad.addColorStop(1,'#3fbf5a');
+    ctx.fillStyle=grassGrad; ctx.strokeStyle="#2f855a"; ctx.lineWidth=2*DPR;
+    ctx.beginPath(); ctx.moveTo(cx, isoY-topH/2); ctx.lineTo(cx+topW/2, isoY); ctx.lineTo(cx, isoY+topH/2); ctx.lineTo(cx-topW/2, isoY); ctx.closePath(); ctx.fill(); ctx.stroke();
+    // cliff
+    const cliffGrad=ctx.createLinearGradient(0,isoY,0,isoY+topH*0.9); cliffGrad.addColorStop(0,'#9e7a55'); cliffGrad.addColorStop(1,'#6d4c3d');
+    ctx.fillStyle=cliffGrad; ctx.beginPath(); ctx.moveTo(cx+topW/2, isoY); ctx.lineTo(cx+topW/2-18*DPR, isoY+topH*0.8); ctx.lineTo(cx, isoY+topH*1.05); ctx.lineTo(cx-topW/2+18*DPR, isoY+topH*0.8); ctx.lineTo(cx-topW/2, isoY); ctx.closePath(); ctx.fill();
+    ctx.restore();
+
+    // tiny trees (cones)
+    for(let i=-2;i<=2;i++){
+      const tx=cx+i*36*DPR + Math.sin(elapsed*0.4+i)*4*DPR; const ty=isoY-10*DPR+Math.cos(elapsed*0.6+i)*2*DPR;
+      ctx.fillStyle="#2f855a"; ctx.beginPath(); ctx.moveTo(tx,ty-16*DPR); ctx.lineTo(tx+10*DPR,ty+8*DPR); ctx.lineTo(tx-10*DPR,ty+8*DPR); ctx.closePath(); ctx.fill();
+      ctx.fillStyle="#73553d"; ctx.fillRect(tx-2*DPR,ty+8*DPR,4*DPR,6*DPR);
+    }
+  }
+
+  function drawCannon(){
+    const cx=W*0.5, cy=H*0.58-10*DPR; // on island
+    ctx.save(); ctx.translate(cx,cy);
+    // wheels shadow
+    ctx.fillStyle="#475569"; ctx.beginPath(); ctx.arc(-18*DPR,8*DPR,8*DPR,0,Math.PI*2); ctx.arc(18*DPR,8*DPR,8*DPR,0,Math.PI*2); ctx.fill();
+    // barrel (isometric tilt)
+    ctx.rotate(barrelAim*0.35);
+    const g=ctx.createLinearGradient(0,0,0,-60*DPR); g.addColorStop(0,'#cbd5e1'); g.addColorStop(1,'#e2e8f0');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.roundRect(-14*DPR,-10*DPR,28*DPR,-60*DPR,12*DPR); ctx.fill();
+    ctx.restore();
+  }
+
+  // ===== Draw entities =====
+  function drawBalloon(b){
+    const label= state.case==='upper'? b.ch.toUpperCase(): b.ch;
+    const r=b.r*(b.popping?1+b.t*0.2:1);
+    // string
+    ctx.strokeStyle="#94a3b8"; ctx.lineWidth=2*DPR; ctx.beginPath(); ctx.moveTo(b.x,b.y+r*0.8); ctx.lineTo(b.x,b.y+r*1.6); ctx.stroke();
+    // body
+    const grd=ctx.createRadialGradient(b.x-r*0.3,b.y-r*0.4,r*0.1,b.x,b.y,r); grd.addColorStop(0,"#ffffffaa"); grd.addColorStop(1,b.color); ctx.fillStyle=grd;
+    ctx.beginPath(); ctx.ellipse(b.x,b.y,r*0.85,r,0,0,Math.PI*2); ctx.fill();
+    // knot
+    ctx.fillStyle=b.color; ctx.beginPath(); ctx.moveTo(b.x-6*DPR,b.y+r*0.7); ctx.lineTo(b.x+6*DPR,b.y+r*0.7); ctx.lineTo(b.x,b.y+r*0.9); ctx.closePath(); ctx.fill();
+    // label
+    ctx.fillStyle="#0f172a"; ctx.font=`${Math.floor(r*0.95)}px/1.1 ui-rounded, system-ui, Arial Black, Arial, sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(label,b.x,b.y);
+  }
+
+  function drawShot(s){ ctx.save(); ctx.translate(s.x,s.y); const sz=8*DPR; ctx.fillStyle="#fde68a"; ctx.beginPath(); ctx.moveTo(0,-sz); ctx.lineTo(sz*0.7,0); ctx.lineTo(0,sz); ctx.lineTo(-sz*0.7,0); ctx.closePath(); ctx.fill(); ctx.restore(); }
+
+  function drawConfetti(){
+    for(const c of confetti){ ctx.save(); ctx.globalAlpha=1 - c.t/c.life; ctx.fillStyle=c.color; if(c.spark){ ctx.beginPath(); ctx.arc(c.x,c.y,c.size,0,Math.PI*2); ctx.fill(); }
+      else if(c.flower){ // 5-petal
+        ctx.translate(c.x,c.y); ctx.rotate(c.t*6);
+        for(let i=0;i<5;i++){ ctx.rotate(Math.PI*2/5); ctx.beginPath(); ctx.ellipse(0,0+c.size, c.size*0.55,c.size*0.85, 0, 0, Math.PI*2); ctx.fill(); }
+      } else { ctx.translate(c.x,c.y); ctx.rotate((c.t*10)%(Math.PI*2)); ctx.fillRect(-c.size/2,-c.size/2,c.size,c.size); } ctx.restore(); }
+  }
+
+  function drawPraises(){ for(const p of praisesFX){ const a=1 - p.t/p.life; ctx.save(); ctx.globalAlpha=a; ctx.fillStyle="#0ea5e9"; ctx.font=`${Math.floor(28*DPR)}px/1 ui-rounded,system-ui,Arial Black`; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(p.text,p.x,p.y - p.t*32); ctx.restore(); } }
+
+  // ===== Flow =====
+  function reset(){ balloons=[]; shots=[]; confetti=[]; praisesFX=[]; elapsed=0; popped=0; seqIndex=0; spawnT=0; updateHUD(); targetWrap.style.display = state.src==='sequence'?'':'none'; if(state.src==='sequence'){ spawnSequenceBalloon(); } }
+  function updateHUD(){ poppedEl.textContent=String(popped); timeEl.textContent=formatTime(elapsed); targetCharEl.textContent=displayChar(currentSeqChar()); }
+  function formatTime(s){ const m=Math.floor(s/60); const sc=Math.floor(s%60); return m+":"+String(sc).padStart(2,'0'); }
+  function displayChar(ch){ return state.case==='upper'? ch.toUpperCase(): ch; }
+  function currentSeqChar(){ return setSeq[seqIndex % setSeq.length]; }
+
+  function spawnSequenceBalloon(){ const ch=currentSeqChar(); balloons.push(makeBalloon(ch)); }
+
+  function spawnRandomBalloon(){ const pool=setSeq; const ch=pool[rInt(0,pool.length-1)]; balloons.push(makeBalloon(ch)); }
+
+  // ===== Input =====
+  document.addEventListener('keydown', (e)=>{
+    AudioKit.ensure(); AudioKit.resume(); AudioKit.startMusic(); if(e.repeat) return;
+    const k=e.key.toLowerCase(); const isLetter=k>='a'&&k<='z'; const isDigit=k>='0'&&k<='9'; if(!(isLetter||isDigit)) return;
+    handleKey(k);
+  });
+
+  function handleKey(k){
+    const hint=document.querySelector('.hint'); hint.style.opacity=0;
+    if(state.src==='sequence'){
+      const expected=currentSeqChar(); if(k===expected){ // shoot nearest matching
+        const target=balloons.find(b=>b.alive && b.ch===k) || balloons[0]; if(target) shoot(target);
+      } else { balloons.forEach(b=> b.wobA=Math.min(b.wobA+1.2,12)); }
+      return;
+    }
+    // random: shoot best matching (lowest on screen)
+    let best=null; for(const b of balloons){ if(b.alive && b.ch===k){ if(!best||b.y>best.y) best=b; } }
+    if(best) shoot(best); else balloons.forEach(b=> b.wobA=Math.min(b.wobA+1.0,12));
+  }
+
+  function shoot(target){ if(!target||!target.alive) return; shots.push(makeShot(target)); barrelAim=clamp((target.x - W*0.5)/(W*0.5),-1,1); AudioKit.fire(); }
+
+  function pop(b){ if(!b.alive) return; b.alive=false; b.popping=true; b.t=0; popped++; updateHUD(); speak(b.ch); AudioKit.pop(); spawnSparksAndFlowers(b.x, b.y - b.r*0.2); praise(b.x, b.y - b.r*1.2); if(state.src==='sequence'){ seqIndex=(seqIndex+1)%setSeq.length; updateHUD(); setTimeout(()=>{ balloons = balloons.filter(x=>x.alive||x.popping); spawnSequenceBalloon(); }, 420); } }
+
+  // ===== Update & Loop =====
+  function update(dt){ elapsed+=dt; timeEl.textContent=formatTime(elapsed);
+    // spawn random stream
+    if(state.src==='random'){ spawnT-=dt; if(spawnT<=0){ spawnT=spawnEvery; if(balloons.filter(b=>b.alive).length<maxBalloons) spawnRandomBalloon(); } }
+
+    // move balloons
+    for(const b of balloons){ b.wob+=dt*b.wobS; b.x += Math.cos(b.wob)*b.wobA*dt + b.vx*dt; b.y -= b.vy*dt; if(b.popping){ b.t+=dt; if(b.t>0.22) b.popping=false; } }
+    balloons = balloons.filter(b=> b.popping || (b.alive && b.y + b.r > -40));
+
+    // move shots
+    for(const s of shots){ const t=s.target; if(!t || !t.alive){ s.done=true; continue; } const dx=t.x - s.x, dy=t.y - s.y; const d=Math.hypot(dx,dy); const v=s.sp*dt; const nx=dx/(d||1), ny=dy/(d||1); s.x += nx*v; s.y += ny*v; if(d < t.r*0.7){ s.done=true; pop(t); } }
+    shots = shots.filter(s=>!s.done);
+
+    // fx
+    for(const c of confetti){ c.t+=dt; c.x+=c.vx*dt; c.y+=c.vy*dt; c.vy += (c.g||240)*dt; }
+    confetti = confetti.filter(c=> c.t < c.life);
+
+    for(const p of praisesFX){ p.t+=dt; } praisesFX = praisesFX.filter(p=> p.t<p.life);
+
+    // decay wobble
+    for(const b of balloons){ b.wobA = lerp(b.wobA, 6, dt*0.4); }
+  }
+
+  function loop(ts){ if(!last) last=ts; const dt=Math.min(0.033,(ts-last)/1000); last=ts; ctx.clearRect(0,0,W,H); drawWorld(); for(const b of balloons) drawBalloon(b); for(const s of shots) drawShot(s); drawConfetti(); drawPraises(); drawCannon(); update(dt); requestAnimationFrame(loop); }
+
+  // ===== UI Wires =====
+  srcSeq.addEventListener('change',()=>{ if(srcSeq.checked){ state.src='sequence'; targetWrap.style.display=''; reset(); save(); }});
+  srcRnd.addEventListener('change',()=>{ if(srcRnd.checked){ state.src='random'; targetWrap.style.display='none'; reset(); save(); }});
+  caseUp.addEventListener('change',()=>{ if(caseUp.checked){ state.case='upper'; updateHUD(); save(); }});
+  caseLo.addEventListener('change',()=>{ if(caseLo.checked){ state.case='lower'; updateHUD(); save(); }});
+  musicToggle.addEventListener('change',()=>{ state.music=musicToggle.checked; AudioKit.ensure(); AudioKit.setMus(state.music); AudioKit.startMusic(); save(); });
+  sfxToggle.addEventListener('change',()=>{ state.sfx=sfxToggle.checked; AudioKit.ensure(); AudioKit.setSfx(state.sfx); save(); });
+  resetBtn.addEventListener('click', reset);
+
+  // persist simple settings
+  function save(){ try{ localStorage.setItem('islandTypers', JSON.stringify(state)); }catch{} }
+  (function load(){ try{ const s=JSON.parse(localStorage.getItem('islandTypers')||'{}'); Object.assign(state,s); srcSeq.checked=state.src==='sequence'; srcRnd.checked=state.src==='random'; caseUp.checked=state.case==='upper'; caseLo.checked=state.case==='lower'; musicToggle.checked=!!state.music; sfxToggle.checked=!!state.sfx; }catch{} })();
+
+  // kick
+  reset(); requestAnimationFrame(loop);
+  setTimeout(()=>{ const h=document.querySelector('.hint'); h.style.transition='opacity .7s'; h.style.opacity=0; }, 5000);
+  window.addEventListener('pointerdown', ()=>{ AudioKit.ensure(); AudioKit.startMusic(); }, {once:true});
+})();
+</script>
+</body>
+</html>
